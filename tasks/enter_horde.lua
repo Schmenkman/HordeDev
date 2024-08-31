@@ -22,14 +22,6 @@ local enter_horde_task = {
     end,
     Execute = function()
         enter_horde()
-        enter_horde_task:reset()  -- Triggering the reset after entering the horde
-    end,
-    reset = function(self)
-        tracker.finished_chest_looting = false
-        tracker.ga_chest_opened = false
-        tracker.selected_chest_opened = false
-        tracker.gold_chest_opened = false
-        console.print("Reset open_chests_task and related tracker flags")
     end
 }
 

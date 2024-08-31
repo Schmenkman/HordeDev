@@ -4,6 +4,7 @@ local settings = require "core.settings"
 local enums = require "data.enums"
 local tracker = require "core.tracker"
 local explorer = require "core.explorer"
+local town_salvage_task = require "tasks.town_salvage"
 
 local chest_state = {
     INIT = "INIT",
@@ -28,30 +29,30 @@ local open_chests_task = {
     current_chest_index = nil,
     max_attempts = 3,
     state_before_pause = nil,
-    
+
     shouldExecute = function()
         local in_correct_zone = utils.player_in_zone("S05_BSK_Prototype02")
-    
+
         if not in_correct_zone then
             return false
         end
-    
+
         if tracker.needs_salvage then
             console.print("  needs_salvage: true")
             return false
         end
-    
+
         local gold_chest_exists = utils.get_chest(enums.chest_types["GOLD"]) ~= nil
-    
+
         if not gold_chest_exists then
             return false
         end
-    
+
         console.print("  finished_chest_looting: " .. tostring(tracker.finished_chest_looting))
-    
+
         return not tracker.finished_chest_looting
     end,
-    
+
     Execute = function(self)
         local current_time = get_time_since_inject()
         console.print("Current state: " .. self.current_state)
@@ -68,11 +69,23 @@ local open_chests_task = {
             self.state_before_pause = nil
             console.print("Resuming chest opening after salvage")
         end
-        
+
+        -- Check for item count and gold chest to initiate salvage
+        local player = get_local_player()
+        local item_count = player:get_item_count()
+        local gold_chest_exists = utils.get_chest(enums.chest_types["GOLD"]) ~= nil
+
+        if item_count >= 25 and gold_chest_exists then
+            console.print("Inventory full and gold chest exists, teleporting to town for salvage")
+            tracker.needs_salvage = true
+            town_salvage_task.Execute(town_salvage_task)
+            return
+        end
+
         if self.current_state == chest_state.FINISHED then
             self:finish_chest_opening()
         end
-        
+
         if self.current_state == chest_state.INIT then
             self:init_chest_opening()
         elseif self.current_state == chest_state.MOVING_TO_AETHER then
@@ -125,7 +138,7 @@ local open_chests_task = {
     move_to_aether = function(self)
         local aether_bomb = utils.get_aether_actor()
         if aether_bomb then
-            if utils.distance_to(aether_bomb) > 0.1 then
+            if utils.distance_to(aether_bomb) > 2 then
                 explorer:set_custom_target(aether_bomb:get_position())
                 explorer:move_to_target()
             else
@@ -182,7 +195,7 @@ local open_chests_task = {
                     explorer:move_to_target()
 
                     self.move_attempts = (self.move_attempts or 0) + 1
-                    if self.move_attempts >= 400 then  -- Adjust this number as needed
+                    if self.move_attempts >= 20 then  -- Adjust this number as needed
                         console.print("Failed to reach chest after multiple attempts")
                         self:try_next_chest()
                         return

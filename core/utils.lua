@@ -2,6 +2,15 @@ local settings = require "core.settings"
 local enums    = require "data.enums"
 local utils    = {}
 
+function utils.get_greater_affix_count(display_name)
+    local count = 0
+    for _ in display_name:gmatch("GreaterAffix") do
+       count = count + 1
+    end
+    return count
+end
+
+
 function utils.distance_to(target)
     local player_pos = get_player_position()
     local target_pos
@@ -273,11 +282,40 @@ function utils.get_aether_actor()
     local actors = actors_manager:get_all_actors()
     for _, actor in pairs(actors) do
         local name = actor:get_skin_name()
-        if name == "BurningAether" or name == "S05_Reputation_Experience_PowerUp_Actor" then
+        if name == "BurningAether" or (settings.loot_mothers_gift and name == "S05_Reputation_Experience_PowerUp_Actor") then
             return actor
         end
     end
     return nil
+end
+
+function utils.get_greater_affix_count(display_name)
+    local count = 0
+    for _ in string.gmatch(display_name, "GreaterAffix") do
+        count = count + 1
+    end
+    return count
+end
+
+function utils.is_inventory_full()
+    return get_local_player():get_item_count() == 33
+end
+
+function utils.get_character_class()
+    local local_player = get_local_player();
+    local class_id = local_player:get_character_class_id()
+    local character_classes = {
+        [0] = "sorcerer",
+        [1] = "barbarian",
+        [3] = "rogue",
+        [5] = "druid",
+        [6] = "necromancer"
+    }
+    if character_classes[class_id] then
+        return character_classes[class_id]
+    else
+        return "default"
+    end
 end
 
 return utils

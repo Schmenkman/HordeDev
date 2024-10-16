@@ -8,6 +8,8 @@ local explorer = require "core.explorer"
 local horde_boss_room_position = vec3:new(-36.17675, -36.3222, 2.200)
 
 local selected_chest_open_time = nil
+local ga_chest_loot_start_time = nil
+local selected_chest_loot_start_time = nil
 
 local chest_state = {
     INIT = "INIT",
@@ -17,7 +19,7 @@ local chest_state = {
     SELECTING_CHEST = "SELECTING_CHEST",
     MOVING_TO_CHEST = "MOVING_TO_CHEST",
     OPENING_CHEST = "OPENING_CHEST",
-    WAITING_FOR_VFX = "WAITING_FOR_VFX",
+    WAITING_FOR_LOOT = "WAITING_FOR_LOOT",
     FINISHED = "FINISHED",
     PAUSED_FOR_SALVAGE = "PAUSED_FOR_SALVAGE",
 }
@@ -76,8 +78,8 @@ local open_chests_task = {
             self:move_to_chest()
         elseif self.current_state == chest_state.OPENING_CHEST then
             self:open_chest()
-        elseif self.current_state == chest_state.WAITING_FOR_VFX then
-            self:wait_for_vfx()
+        elseif self.current_state == chest_state.WAITING_FOR_LOOT then
+            self:wait_for_loot()
         end
     end,
 
@@ -249,49 +251,39 @@ local open_chests_task = {
                 return
             end
             local chest = utils.get_chest(enums.chest_types[self.current_chest_type])
-            if chest then
-                local try_open_chest = interact_object(chest)
-                console.print("Chest interaction result: " .. tostring(try_open_chest))
-                self.current_state = chest_state.WAITING_FOR_VFX
-                -- Setzen Sie einen Timer für die VFX-Überprüfung
-                tracker.chest_vfx_wait_start = get_time_since_inject()
+        if chest then
+            local try_open_chest = interact_object(chest)
+            console.print("Chest interaction result: " .. tostring(try_open_chest))
+            if try_open_chest then
+                if self.current_chest_type == "GREATER_AFFIX" then
+                    ga_chest_loot_start_time = get_time_since_inject()
+                elseif self.current_chest_type == self.selected_chest_type then
+                    selected_chest_loot_start_time = get_time_since_inject()
+                end
+                self.current_state = chest_state.WAITING_FOR_LOOT
             else
-                console.print("Chest not found when trying to open")
-                self:try_next_chest()
+                console.print("Failed to open chest")
+                self:try_next_chest(false)
             end
+        else
+            console.print("Chest not found when trying to open")
+            self:try_next_chest(false)
         end
-    end,
+    end
+end,
 
-    wait_for_vfx = function(self)
-        if tracker.check_time("chest_vfx_wait", 10) then
-            local actors = actors_manager:get_all_actors()
-            local vfx_found = false
-            for _, actor in pairs(actors) do
-                local name = actor:get_skin_name()
-                if name == "vfx_resplendentChest_coins" or name == "vfx_resplendentChest_lightRays" then
-                    console.print("Chest opened successfully: " .. name)
-                    vfx_found = true
-                    break
-                end
-            end
-            
-            if vfx_found then
-                self.failed_attempts = 0
-                if self.current_chest_type == self.selected_chest_type then
-                    tracker.selected_chest_opened = true
-                elseif self.current_chest_type == "GREATER_AFFIX" then
-                    tracker.ga_chest_opened = true
-                end
-                self:try_next_chest(true)
-            else
-                console.print("No visual effects found, chest opening may have failed")
-                self.failed_attempts = self.failed_attempts + 1
-                if self.failed_attempts >= self.max_attempts then
-                    self:try_next_chest(false)
-                else
-                    self.current_state = chest_state.OPENING_CHEST
-                end
-            end
+    wait_for_loot = function(self)
+        local loot_time = 5  -- 5 Seconds loot time - 
+        local current_time = get_time_since_inject()
+    
+        if self.current_chest_type == "GREATER_AFFIX" and current_time - ga_chest_loot_start_time >= loot_time then
+            console.print("GA chest loot time finished")
+            tracker.ga_chest_opened = true
+            self:try_next_chest(true)
+        elseif self.current_chest_type == self.selected_chest_type and current_time - selected_chest_loot_start_time >= loot_time then
+            console.print("Selected chest loot time finished")
+            tracker.selected_chest_opened = true
+            self:try_next_chest(true)
         end
     end,
 
@@ -323,6 +315,7 @@ local open_chests_task = {
         if (not settings.always_open_ga_chest or tracker.ga_chest_opened) and tracker.selected_chest_opened then
             console.print("All required chests opened, finishing task")
             self.current_state = chest_state.FINISHED
+            tracker.finished_chest_looting = true
             return
         end
     

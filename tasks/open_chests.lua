@@ -374,6 +374,8 @@ end,
         tracker.ga_chest_opened = false
         tracker.selected_chest_opened = false
         tracker.gold_chest_opened = false
+        ga_chest_loot_start_time = nil  -- Reset the timer
+        selected_chest_loot_start_time = nil  -- Reset the timer
         console.print("Reset open_chests_task and related tracker flags")
     end
 }

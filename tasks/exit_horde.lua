@@ -16,7 +16,7 @@ exit_horde_task = {
     shouldExecute = function()
         return utils.player_in_zone("S05_BSK_Prototype02")
             and utils.get_stash() ~= nil
-            and (tracker.finished_chest_looting or (not utils.get_chest(enums.chest_types["GREATER_AFFIX"]) and not utils.get_chest(enums.chest_types[open_chests_task.selected_chest_type])))
+            and tracker.finished_chest_looting
     end,
     
     Execute = function()
@@ -35,13 +35,6 @@ exit_horde_task = {
             end
         end
 
-        -- Check for the presence of the gold chest
-        local gold_chest = utils.get_chest(enums.chest_types["GOLD"])
-        if gold_chest then
-            console.print("Gold chest found. Back to open_chest task")
-            tracker.gold_chest_opened = false
-            return
-        end
 
         -- Proceed with exit procedure
         if not exit_horde_task.delay_start_time then
@@ -62,8 +55,8 @@ exit_horde_task = {
         end
        
         local elapsed_time = current_time - tracker.exit_horde_start_time
-        if elapsed_time >= 10 then
-            console.print("10-second timer completed. Resetting all dungeons")
+        if elapsed_time >= 15 then
+            console.print("15-second timer completed. Resetting all dungeons")
             reset_all_dungeons()
             tracker.clear_runtime_timers()
             tracker.victory_lap = false
@@ -80,7 +73,7 @@ exit_horde_task = {
             exit_horde_task.delay_start_time = nil  -- Reset the delay timer
             exit_horde_task.moved_to_center = false  -- Reset the moved_to_center flag
         else
-            console.print(string.format("Waiting to exit Horde. Time remaining: %.2f seconds", 10 - elapsed_time))
+            console.print(string.format("Waiting to exit Horde. Time remaining: %.2f seconds", 15 - elapsed_time))
         end
     end
 }

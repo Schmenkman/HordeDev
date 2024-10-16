@@ -362,16 +362,12 @@ local open_chests_task = {
             tracker.selected_chest_opened = true
         end
     
-        local all_required_chests_opened = tracker.selected_chest_opened
-        if settings.always_open_ga_chest then
-            all_required_chests_opened = all_required_chests_opened and tracker.ga_chest_opened
-        end
-    
-        if all_required_chests_opened then
+        if tracker.selected_chest_opened then
             tracker.finished_chest_looting = true
-            console.print("All required chests opened, finishing task")
+            console.print("Selected chest opened, finishing task")
+            -- Entferne den Aufruf von try_next_chest hier
         else
-            console.print("Not all required chests opened yet, continuing task")
+            console.print("Selected chest not opened yet, continuing task")
             self:try_next_chest(true)
         end
     end,

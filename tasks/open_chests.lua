@@ -273,7 +273,7 @@ local open_chests_task = {
 end,
 
     wait_for_loot = function(self)
-        local loot_time = 5  -- 5 Seconds loot time - 
+        local loot_time = 10  -- 10 Seconds loot time - 
         local current_time = get_time_since_inject()
     
         if self.current_chest_type == "GREATER_AFFIX" and current_time - ga_chest_loot_start_time >= loot_time then

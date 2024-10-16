@@ -19,7 +19,7 @@ end
 local last_call_time = 0.0
 function task_manager.execute_tasks()
     local current_core_time = get_time_since_inject()
-    if current_core_time - last_call_time < 0.2 then
+    if current_core_time - last_call_time < 0.1 then
         return -- quick ej slide frames
     end
 
@@ -45,7 +45,7 @@ function task_manager.get_current_task()
     return current_task
 end
 
-local task_files = { "town_salvage" , "open_chests" , "exit_horde" ,"start_dungeon", "enter_horde", "horde" }
+local task_files = { "reset_from_town" , "town_salvage" , "open_chests" , "exit_horde" ,"start_dungeon", "enter_horde", "horde" }
 for _, file in ipairs(task_files) do
     local task = require("tasks." .. file)
     task_manager.register_task(task)

@@ -90,6 +90,12 @@ local last_position = nil
 local last_move_time = 0
 local last_explored_targets = {}
 local max_last_targets = 50
+local stuck_check_interval = 2  -- Check every 2 seconds
+local stuck_distance_threshold = 0.5  -- Consider stuck if moved less than 0.5 units
+local temp_target_distance = 10  -- Distance for temporary target
+local last_stuck_check_time = 0
+local last_stuck_check_position = nil
+local original_target = nil
 
 -- Function to check and print pit start time and time spent in pit
 local function check_pit_time()
@@ -128,7 +134,7 @@ local last_movement_direction = nil
 
 --ai fix for kill monsters path
 function explorer:clear_path_and_target()
-    --console.print("Clearing path and target.")
+    console.print("Clearing path and target.")
     target_position = nil
     current_path = {}
     path_index = 1
@@ -182,11 +188,74 @@ local function is_point_in_explored_area(point)
         point:z() >= explored_area_bounds.min_z and point:z() <= explored_area_bounds.max_z
 end
 
-local function mark_area_as_explored(center, radius)
-    --console.print("Marking area as explored.")
-    update_explored_area_bounds(center, radius)
-    -- Hier können Sie zusätzliche Logik hinzufügen, um die erkundeten Bereiche zu markieren
-    -- z.B. durch Hinzufügen zu einer Datenstruktur oder durch Setzen von Flags
+
+local function find_unstuck_target()
+    console.print("Finding unstuck target.")
+    local player_pos = get_player_position()
+    local valid_targets = {}
+
+    for x = -unstuck_target_distance, unstuck_target_distance, grid_size do
+        for y = -unstuck_target_distance, unstuck_target_distance, grid_size do
+            local point = vec3:new(
+                player_pos:x() + x,
+                player_pos:y() + y,
+                player_pos:z()
+            )
+            point = set_height_of_valid_position(point)
+
+            local distance = calculate_distance(player_pos, point)
+            if utility.is_point_walkeable(point) and distance >= 2 and distance <= unstuck_target_distance then
+                table.insert(valid_targets, point)
+            end
+        end
+    end
+
+    if #valid_targets > 0 then
+        return valid_targets[math.random(#valid_targets)]
+    end
+
+    return nil
+end
+
+explorer.find_unstuck_target = find_unstuck_target
+
+
+local function handle_stuck_player()
+    local current_time = os.time()
+    local player_pos = get_player_position()
+
+    if not last_stuck_check_position then
+        last_stuck_check_position = player_pos
+        last_stuck_check_time = current_time
+        return false
+    end
+
+    if current_time - last_stuck_check_time >= stuck_check_interval then
+        local distance_moved = calculate_distance(player_pos, last_stuck_check_position)
+
+        if distance_moved < stuck_distance_threshold then
+            console.print("Player appears to be stuck. Finding temporary target.")
+            original_target = target_position
+            local temp_target = find_unstuck_target()
+            if temp_target then
+                target_position = temp_target
+                --console.print("Temporary target set: " .. tostring(temp_target))
+
+            else
+                console.print("Failed to find temporary target.")
+            end
+            return true
+        elseif original_target and distance_moved >= stuck_distance_threshold * 2 then
+            console.print("Player has moved. Returning to original target.")
+            target_position = original_target
+            original_target = nil
+        end
+
+        last_stuck_check_position = player_pos
+        last_stuck_check_time = current_time
+    end
+
+    return false
 end
 
 local function check_walkable_area()
@@ -195,8 +264,6 @@ local function check_walkable_area()
 
     local player_pos = get_player_position()
     local check_radius = 15 -- Überprüfungsradius in Metern
-
-    mark_area_as_explored(player_pos, exploration_radius)
 
     for x = -check_radius, check_radius, grid_size do
         for y = -check_radius, check_radius, grid_size do
@@ -332,125 +399,6 @@ local function find_nearby_unexplored_point(center, radius)
 
             if utility.is_point_walkeable(point) and not is_point_in_explored_area(point) then
                 return point
-            end
-        end
-    end
-
-    return nil
-end
-
-local function find_explored_direction_target()
-    console.print("Finding explored direction target.")
-    local player_pos = get_player_position()
-    local max_attempts = 500
-    local attempts = 0
-    local best_target = nil
-    local best_distance = math.huge -- Initialize to a large value to find the closest point
-
-    while attempts < max_attempts do
-        attempts = attempts + 1
-        local direction_vector = vec3:new(
-            exploration_direction.x * max_target_distance * 0.4,
-            exploration_direction.y * max_target_distance * 0.4,
-            0
-        )
-        local target_point = player_pos + direction_vector
-        target_point = set_height_of_valid_position(target_point)
-
-        if utility.is_point_walkeable(target_point) and is_point_in_explored_area(target_point) then
-            local distance = calculate_distance(player_pos, target_point)
-            if distance < best_distance and not is_in_last_targets(target_point) then
-                best_target = target_point
-                best_distance = distance
-
-                -- Check for nearby unexplored points
-                local nearby_unexplored_point = find_nearby_unexplored_point(target_point, exploration_radius)
-                if nearby_unexplored_point then
-                    console.print("Nearby unexplored point found. Switching to unexplored mode.")
-                    exploration_mode = "unexplored"
-                    return nearby_unexplored_point
-                end
-            end
-        else
-            --console.print("Attempt " .. attempts .. ": Target point is not walkable or not in explored area.")
-        end
-
-        -- Change the direction slightly for the next attempt
-        local angle = math.atan2(exploration_direction.y, exploration_direction.x) + math.random() * math.pi / 4 - math.pi / 8
-        exploration_direction.x = math.cos(angle)
-        exploration_direction.y = math.sin(angle)
-    end
-
-    if best_target then
-        add_to_last_targets(best_target)
-        console.print("Found best target after " .. attempts .. " attempts.")
-        return best_target
-    else
-        console.print("Could not find a valid explored target after " .. max_attempts .. " attempts.")
-        return nil
-    end
-end
-
-local function find_unstuck_target()
-    console.print("Finding unstuck target.")
-    local player_pos = get_player_position()
-    local valid_targets = {}
-
-    for x = -unstuck_target_distance, unstuck_target_distance, grid_size do
-        for y = -unstuck_target_distance, unstuck_target_distance, grid_size do
-            local point = vec3:new(
-                player_pos:x() + x,
-                player_pos:y() + y,
-                player_pos:z()
-            )
-            point = set_height_of_valid_position(point)
-
-            local distance = calculate_distance(player_pos, point)
-            if utility.is_point_walkeable(point) and distance >= 2 and distance <= unstuck_target_distance then
-                table.insert(valid_targets, point)
-            end
-        end
-    end
-
-    if #valid_targets > 0 then
-        return valid_targets[math.random(#valid_targets)]
-    end
-
-    return nil
-end
-
-explorer.find_unstuck_target = find_unstuck_target
-
-
-local function find_target(include_explored)
-    console.print("Finding target.")
-    last_movement_direction = nil -- Reset the last movement direction
-
-    if include_explored then
-        return find_unstuck_target()
-    else
-        if exploration_mode == "unexplored" then
-            -- Commented out the following lines
-            -- local unexplored_target = find_central_unexplored_target()
-            -- if unexplored_target then
-            --     return unexplored_target
-            -- else
-                exploration_mode = "explored"
-                console.print("No unexplored areas found. Switching to explored mode.")
-                last_explored_targets = {} -- Reset last targets when switching modes
-            -- end
-        end
-
-        if exploration_mode == "explored" then
-            local explored_target = find_explored_direction_target()
-            if explored_target then
-                return explored_target
-            else
-                console.print("No valid explored targets found. Resetting exploration.")
-                reset_exploration()
-                exploration_mode = "unexplored"
-                -- Return nil or adjust logic here to handle the absence of unexplored targets
-                -- You might want to return nil or handle it differently since you don't want `find_central_unexplored_target` to run
             end
         end
     end
@@ -595,81 +543,9 @@ local function a_star(start, goal)
 end
 
 local last_a_star_call = 0.0
-local function move_to_target()
-    if explorer.is_task_running then
-        return  -- Do not set a path if a task is running
-    end
 
-    if target_position then
-        local player_pos = get_player_position()
-        if calculate_distance(player_pos, target_position) > 500 then
-            target_position = find_target(false)
-            current_path = {}
-            path_index = 1
-            return
-        end
 
-        if not current_path or #current_path == 0 or path_index > #current_path then
-            local current_core_time = get_time_since_inject()
-            path_index = 1
-            current_path = nil
-            current_path = a_star(player_pos, target_position)
-            last_a_star_call = current_core_time
 
-            if not current_path then
-                console.print("No path found to target. Finding new target.")
-                target_position = find_target(false)
-                return
-            end
-        end
-
-        local next_point = current_path[path_index]
-        if next_point and not next_point:is_zero() then
-            pathfinder.request_move(next_point)
-        end
-
-        if next_point and next_point.x and not next_point:is_zero() and calculate_distance(player_pos, next_point) < grid_size then
-            local direction = {
-                x = next_point:x() - player_pos:x(),
-                y = next_point:y() - player_pos:y()
-            }
-            last_movement_direction = direction
-            path_index = path_index + 1
-        end
-
-        if calculate_distance(player_pos, target_position) < 2 then
-            mark_area_as_explored(player_pos, exploration_radius)
-            target_position = nil
-            current_path = {}
-            path_index = 1
-
-            -- Check for nearby unexplored points when in explored mode
-            if exploration_mode == "explored" then
-                local nearby_unexplored_point = find_nearby_unexplored_point(player_pos, exploration_radius)
-                if nearby_unexplored_point then
-                    exploration_mode = "unexplored"
-                    target_position = nearby_unexplored_point
-                    console.print("Found nearby unexplored area. Switching back to unexplored mode.")
-                    last_explored_targets = {}
-                    current_path = nil
-                    path_index = 1
-                else
-                    -- If no unexplored points are found, continue with explored mode logic
-                    -- Commented out the following line
-                    -- local unexplored_target = find_central_unexplored_target()
-                    -- if unexplored_target then
-                    --     exploration_mode = "unexplored"
-                    --     target_position = unexplored_target
-                    --     console.print("Found new unexplored area. Switching back to unexplored mode.")
-                    --     last_explored_targets = {}
-                    -- end
-                end
-            end
-        end
-    else
-        target_position = find_target(false)
-    end
-end
 
 local function check_if_stuck()
     --console.print("Checking if character is stuck.")
@@ -696,10 +572,123 @@ function explorer:set_custom_target(target)
     target_position = target
 end
 
--- Expose the move_to_target function
-function explorer:move_to_target()
-    move_to_target()
+function explorer:movement_spell_to_target(target)
+    local local_player = get_local_player()
+    if not local_player then return end
+
+    local movement_spell_id = {
+        288106, -- Sorcerer teleport
+        358761, -- Rogue dash
+        355606, -- Rogue shadow step
+        1663206, -- spiritborn hunter 
+    }
+
+    if settings.use_evade_as_movement_spell then
+        table.insert(movement_spell_id, 337031) -- General Evade
+    end
+
+    -- Check if the dash spell is off cooldown and ready to cast
+    for _, spell_id in ipairs(movement_spell_id) do
+        if local_player:is_spell_ready(spell_id) then
+            -- Cast the dash spell towards the target's position
+            local success = cast_spell.position(spell_id, target, 3.0) -- A little delay or else rogue goes turbo in dashing
+            if success then
+                console.print("Successfully used movement spell to target.")
+            else
+                console.print("Failed to use movement spell.")
+            end
+        else
+            console.print("Movement spell on cooldown.")
+        end
+    end
 end
+
+local function move_to_target()
+    if explorer.is_task_running then
+        return  -- Do not set a path if a task is running
+    end
+
+    if target_position then
+        local player_pos = get_player_position()
+        if calculate_distance(player_pos, target_position) > 500 then
+            current_path = {}
+            path_index = 1
+            return
+        end
+
+        local current_core_time = get_time_since_inject()
+        local time_since_last_call = current_core_time - last_a_star_call
+
+        if not current_path or #current_path == 0 or path_index > #current_path or time_since_last_call >= 0.50 then
+            path_index = 1
+            current_path = nil
+            current_path = a_star(player_pos, target_position)
+            last_a_star_call = current_core_time
+
+            if not current_path then
+                console.print("No path found to target. Finding new target.")
+                return
+            end
+        end
+
+        local next_point = current_path[path_index]
+        if next_point and not next_point:is_zero() then
+            pathfinder.request_move(next_point)
+            --pathfinder.force_move(next_point)
+        end
+
+        if next_point and next_point.x and not next_point:is_zero() and calculate_distance(player_pos, next_point) < grid_size then
+            local direction = {
+                x = next_point:x() - player_pos:x(),
+                y = next_point:y() - player_pos:y()
+            }
+            last_movement_direction = direction
+            path_index = path_index + 1
+        end
+
+        if calculate_distance(player_pos, target_position) < 2 then
+            target_position = nil
+            current_path = {}
+            path_index = 1
+        end
+    else
+        -- Move to center if no target
+        console.print("No target found. Moving to center.")
+        pathfinder.force_move_raw(vec3:new(9.204102, 8.915039, 0.000000))
+    end
+end
+
+local function move_to_target_aggresive()
+    if target_position then
+        pathfinder.force_move_raw(target_position)
+    else
+        -- Move to center if no target
+        console.print("No target found. Moving to center.")
+        pathfinder.force_move_raw(vec3:new(9.204102, 8.915039, 0.000000))
+    end
+end
+
+
+function explorer:move_to_target()
+    console.print("Moving to target")
+    
+    if handle_stuck_player() then
+        -- If we've just set a temporary target, we want to move to it immediately
+        if settings.aggresive_movement then
+            move_to_target_aggresive()
+        else
+            move_to_target()
+        end
+        return
+    end
+
+    if settings.aggresive_movement then
+        move_to_target_aggresive()
+    else
+        move_to_target()
+    end
+end
+
 
 local last_call_time = 0.0
 local is_player_on_quest = false
@@ -738,7 +727,7 @@ on_update(function()
         local is_stuck = check_if_stuck()
         if is_stuck then
             console.print("Character was stuck. Finding new target and attempting revive")
-            target_position = find_target(true)
+            target_position = find_target(false)
             target_position = set_height_of_valid_position(target_position)
             last_move_time = os.time()
             current_path = {}
